@@ -1,119 +1,55 @@
-import threading
-import queue
-import numpy as np
-import pyaudio
-from faster_whisper import WhisperModel
-import ollama
-import pyttsx3
+import speech_recognition as sr
+from gtts import gTTS
+import pygame
+import os
 import time
-from intent_handler import IntentHandler 
 
-class FridayVoice:
+class VoiceSystem:
     def __init__(self):
-        print("⏳ Loading STT Model (This may take a minute on first run)...")
-        # 1. Initialize STT (Ears) - Tiny model is best for 8GB RAM
-        self.stt_model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
-        print("✅ STT Model Loaded.")
-        
-        # 2. Initialize TTS (Voice)
-        self.engine = pyttsx3.init()
-        self.engine.setProperty('rate', 180) 
-        
-        # 3. Initialize Intent Handler (Hands)
-        self.handler = IntentHandler()
-        
-        # 4. Conversation Memory (The "Context Window")
-        self.history = [
-            {
-                'role': 'system', 
-                'content': (
-                    'You are FRIDAY. Witty, concise, and helpful. Max 15 words. '
-                    'If asked to open an app, say "Launching [App Name]" clearly.'
-                )
-            }
-        ]
-        
-        self.is_running = True
-        print("✅ Friday Voice Engine: Ears, Voice & Memory Initialized")
+        # Initialize mixer with specific frequency to avoid 'chipmunk' voice
+        pygame.mixer.init(frequency=24000) 
+        self.recognizer = sr.Recognizer()
+        self.recognizer.energy_threshold = 300 # Adjusts sensitivity to noise
 
     def speak(self, text):
-        """Make Friday talk."""
-        print(f"Friday: {text}")
-        self.engine.say(text)
-        self.engine.runAndWait()
-
-    def ask_brain(self, text):
-        """Send transcription with rolling memory to Llama 3.2 1B."""
+        if not text: return
+        print(f"🤖 FRIDAY: {text}")
+        
         try:
-            # Add user's words to the history
-            self.history.append({'role': 'user', 'content': text})
-
-            # Memory Management: Keep only system prompt + last 4 messages.
-            # This stops her from repeating her name every time.
-            if len(self.history) > 6:
-                self.history = [self.history[0]] + self.history[-4:]
-
-            response = ollama.chat(model='llama3.2:1b', messages=self.history)
-            friday_reply = response['message']['content']
-
-            # Store Friday's reply so she remembers what she just said
-            self.history.append({'role': 'assistant', 'content': friday_reply})
+            tts = gTTS(text=text, lang='hi') # Hindi support active
+            filename = f"speech_{int(time.time())}.mp3" # Unique name to avoid conflicts
+            tts.save(filename)
             
-            return friday_reply
+            pygame.mixer.music.load(filename)
+            pygame.mixer.music.play()
+            
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.05)
+            
+            pygame.mixer.music.unload()
+            # Safety delay before deletion
+            time.sleep(0.1) 
+            if os.path.exists(filename):
+                os.remove(filename)
         except Exception as e:
-            return f"Brain Error: {e}"
+            print(f"⚠️ Speak Error: {e}")
 
-    def listen_and_process(self):
-        """Captures audio, transcribes, and triggers brain/intents."""
-        chunk = 1024
-        sample_format = pyaudio.paInt16
-        channels = 1
-        fs = 16000 
-        
-        p = pyaudio.PyAudio()
-        stream = p.open(format=sample_format, channels=channels, rate=fs,
-                        frames_per_buffer=chunk, input=True)
-
-        print("🎙️ Friday is listening (Speak now)...")
-
-        try:
-            while self.is_running:
-                data = stream.read(chunk, exception_on_overflow=False)
-                audio_data = np.frombuffer(data, np.int16).flatten().astype(np.float32) / 32768.0
-                
-                # Check if someone is actually speaking (RMS threshold)
-                if np.abs(audio_data).mean() > 0.005: 
-                    segments, _ = self.stt_model.transcribe(audio_data, beam_size=1)
-                    for segment in segments:
-                        text = segment.text.strip()
-                        if len(text) > 2:
-                            print(f"You: {text}")
-                            
-                            # Global kill-command
-                            if "stop friday" in text.lower():
-                                self.speak("Understood. Going offline.")
-                                self.is_running = False
-                                break
-
-                            # 1. Get witty reply from Brain
-                            answer = self.ask_brain(text)
-                            
-                            # 2. Speak the reply
-                            self.speak(answer)
-                            
-                            # 3. Execute the Intent (Launch apps)
-                            self.handler.execute(answer)
-                
-                time.sleep(0.01) # Save CPU cycles
-        
-        finally:
-            stream.stop_stream()
-            stream.close()
-            p.terminate()
-
-if __name__ == "__main__":
-    friday = FridayVoice()
-    try:
-        friday.listen_and_process()
-    except KeyboardInterrupt:
-        print("\n🛑 Friday is going to sleep. Goodbye!")
+    def listen(self):
+        with sr.Microphone() as source:
+            # Clear console and show listening status
+            print("\r🎤 Sun raha hoon sir...", end="", flush=True)
+            self.recognizer.adjust_for_ambient_noise(source, duration=0.8)
+            
+            try:
+                # phrase_time_limit prevents Friday from listening for too long
+                audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=8)
+                query = self.recognizer.recognize_google(audio, language='en-IN')
+                print(f"\r🗣️ User: {query}")
+                return query.lower()
+            except sr.WaitTimeoutError:
+                return ""
+            except sr.UnknownValueError:
+                return ""
+            except Exception as e:
+                print(f"\n⚠️ Listen Error: {e}")
+                return ""
