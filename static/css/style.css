@@ -1,0 +1,190 @@
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=JetBrains+Mono:wght@400&display=swap');
+
+:root {
+    --neon-cyan: #00ffff;
+    --neon-red: #ff3333;
+    --bg-black: #050505;
+    --glass-border: rgba(0, 255, 255, 0.3);
+    --font-main: 'Rajdhani', sans-serif;
+    --font-code: 'JetBrains Mono', monospace;
+}
+
+body {
+    background-color: var(--bg-black);
+    background-image: 
+        radial-gradient(circle at 50% 50%, #0a1a1a 0%, #050505 100%),
+        linear-gradient(rgba(0, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 255, 0.05) 1px, transparent 1px);
+    background-size: 100% 100%, 50px 50px, 50px 50px;
+    color: var(--neon-cyan);
+    font-family: var(--font-main);
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    perspective: 1200px; /* Essential for 3D depth */
+}
+
+/* Main 3D Dashboard Container */
+.dashboard {
+    position: relative;
+    background: rgba(15, 25, 30, 0.7);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    border: 1px solid var(--glass-border);
+    border-radius: 40px;
+    padding: 60px;
+    text-align: center;
+    
+    /* 3D Tilt */
+    transform: rotateX(10deg) rotateY(0deg);
+    transform-style: preserve-3d;
+    
+    box-shadow: 
+        0 50px 100px rgba(0, 0, 0, 0.9),
+        0 0 30px rgba(0, 255, 255, 0.1),
+        inset 0 0 2px rgba(255, 255, 255, 0.2);
+    
+    transition: transform 0.5s ease;
+}
+
+.dashboard:hover {
+    transform: rotateX(5deg) scale(1.02);
+}
+
+/* The 3D Glass Sphere (The Orb) */
+.orb-outer {
+    transform-style: preserve-3d;
+    filter: drop-shadow(0 0 25px rgba(0, 255, 255, 0.3));
+}
+
+.orb-inner {
+    width: 200px; 
+    height: 200px;
+    margin: 20px auto;
+    border-radius: 50%;
+    position: relative;
+    
+    /* Glass Lens Effect */
+    background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.3) 0%, rgba(0, 255, 255, 0.05) 40%, transparent 70%);
+    border: 1px solid rgba(0, 255, 255, 0.5);
+    
+    /* Layered 3D Shadows */
+    box-shadow: 
+        0 15px 35px rgba(0, 0, 0, 0.8),
+        inset 15px 15px 30px rgba(255, 255, 255, 0.1),
+        inset -15px -15px 30px rgba(0, 0, 0, 0.6),
+        inset 0 0 50px rgba(0, 255, 255, 0.2);
+    
+    transform: translateZ(50px); /* Lifts orb off the panel */
+    transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.orb-inner.active {
+    animation: floating3d 2.5s infinite ease-in-out;
+    background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.4) 0%, var(--neon-cyan) 30%, transparent 75%);
+    box-shadow: 
+        0 0 70px var(--neon-cyan),
+        inset 0 0 40px white,
+        0 0 120px rgba(0, 255, 255, 0.4);
+}
+
+@keyframes floating3d {
+    0% { transform: translateZ(50px) translateY(0px) scale(1); }
+    50% { transform: translateZ(100px) translateY(-10px) scale(1.05); }
+    100% { transform: translateZ(50px) translateY(0px) scale(1); }
+}
+
+/* Tactile 3D Buttons */
+button {
+    background: #0d1f1f;
+    color: var(--neon-cyan);
+    border: 1px solid var(--neon-cyan);
+    padding: 20px 60px;
+    font-size: 1.2rem;
+    font-weight: 700;
+    font-family: var(--font-main);
+    border-radius: 15px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    
+    /* Button Thickness */
+    border-bottom: 6px solid #008a8a;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
+    
+    transform: translateZ(30px);
+    transition: all 0.15s ease;
+}
+
+button:hover {
+    background: var(--neon-cyan);
+    color: #000;
+    box-shadow: 0 0 40px var(--neon-cyan);
+    transform: translateZ(40px) translateY(-2px);
+}
+
+button:active {
+    transform: translateZ(15px) translateY(4px);
+    border-bottom: 2px solid #008a8a;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+
+/* Recessed 3D Terminal */
+#terminal {
+    background: rgba(0, 0, 0, 0.5);
+    margin-top: 40px;
+    border-radius: 20px;
+    border: 1px solid rgba(0, 255, 255, 0.1);
+    
+    /* Pushed-in effect */
+    box-shadow: 
+        inset 8px 8px 16px rgba(0, 0, 0, 0.9),
+        inset -2px -2px 8px rgba(255, 255, 255, 0.02);
+    
+    transform: translateZ(10px);
+    overflow: hidden;
+    height: 200px;
+    display: flex;
+    flex-direction: column;
+}
+
+.terminal-header {
+    background: rgba(0, 255, 255, 0.8);
+    color: #000;
+    font-family: var(--font-code);
+    font-size: 0.75rem;
+    padding: 5px 15px;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+#log-container {
+    padding: 15px;
+    font-family: var(--font-code);
+    font-size: 0.9rem;
+    overflow-y: auto;
+    color: #e0ffff;
+    text-shadow: 0 0 5px rgba(0, 255, 255, 0.2);
+}
+
+.log-entry { margin-bottom: 8px; border-left: 2px solid rgba(0, 255, 255, 0.1); padding-left: 10px; }
+.friday { color: var(--neon-cyan); font-weight: bold; }
+.user { color: #ffffff; opacity: 0.9; }
+
+/* Custom Scrollbar */
+#log-container::-webkit-scrollbar { width: 4px; }
+#log-container::-webkit-scrollbar-thumb { background: var(--neon-cyan); border-radius: 10px; }
+
+/* 3D Floor Reflection Overlay */
+body::after {
+    content: "";
+    position: absolute;
+    bottom: -10vh;
+    width: 100%;
+    height: 40vh;
+    background: linear-gradient(to top, var(--bg-black) 20%, transparent);
+    z-index: -1;
+}

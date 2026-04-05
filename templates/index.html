@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMNI-BOT Interface</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="header">
+            <h1>FRIDAY <span id="ver">v2.0.0</span></h1>
+            <div id="connection-status">LINK STABLE</div>
+        </div>
+
+        <div class="core-interface">
+            <div class="orb-outer">
+                <div id="orb" class="orb-inner"></div>
+            </div>
+            <div class="status-panel">
+                <p>System Core: <span id="sys-status">OFFLINE</span></p>
+                <p>Voice Protocol: <span id="voice-status">INACTIVE</span></p>
+            </div>
+        </div>
+
+        <div id="terminal">
+            <div class="terminal-header">COMMUNICATION_LOG_v1.0</div>
+            <div id="log-container">
+                <div class="sys-entry">Waiting for system initialization...</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="power-btn" onclick="toggleFriday()">INITIALIZE CORE</button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    
+    <script>
+        const socket = io();
+        const logContainer = document.getElementById('log-container');
+        const voiceStatus = document.getElementById('voice-status');
+
+        // Listen for real-time logs from Python
+        socket.on('new_log', function(data) {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${data.sender}`;
+            
+            // Format: USER: Hello or FRIDAY: Systems Online
+            entry.innerHTML = `<span class="timestamp">[${new_time()}]</span> <strong>${data.sender.toUpperCase()}:</strong> ${data.text}`;
+            
+            logContainer.appendChild(entry);
+            
+            // Auto-scroll to keep the latest command visible
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            // Optional: Update Voice Status dynamically
+            if (data.text.includes("passive monitoring")) voiceStatus.innerText = "PASSIVE";
+            if (data.text.includes("reactivated")) voiceStatus.innerText = "ACTIVE";
+        });
+
+        function new_time() {
+            const now = new Date();
+            return now.getHours().toString().padStart(2, '0') + ":" + 
+                   now.getMinutes().toString().padStart(2, '0');
+        }
+    </script>
+</body>
+</html>
