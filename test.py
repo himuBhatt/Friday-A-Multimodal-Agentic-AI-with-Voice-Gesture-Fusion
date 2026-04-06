@@ -12,8 +12,9 @@ from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 import screen_brightness_control as sbcontrol
 
-# --- SHARED STATE ---
+# --- SHARED STATE: The Bridge between Vision and Voice ---
 class SharedState:
+    """Synchronizes background voice tasks with foreground vision tasks."""
     is_speaking = False
     is_listening = False
     keyboard_active = False
@@ -23,7 +24,6 @@ class SharedState:
 class Gest(IntEnum):
     FIST, PINKY, RING, MID, LAST3, INDEX, FIRST2, LAST4, THUMB, PALM = 0, 1, 2, 4, 7, 8, 12, 15, 16, 31
     V_GEST, TWO_FINGER_CLOSED, PINCH_MAJOR, PINCH_MINOR = 33, 34, 35, 36
-    PINCH_LEFT, PINCH_RIGHT = 37, 38
     NONE = -1
 
 class HLabel(IntEnum):
@@ -37,11 +37,14 @@ class FridayHUD:
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 0.6)
         self.root.wm_attributes("-transparentcolor", "black")
+
         self.screen_w = self.root.winfo_screenwidth()
         self.screen_h = self.root.winfo_screenheight()
         self.root.geometry(f"{self.screen_w}x{self.screen_h}+0+0")
+
         self.canvas = tk.Canvas(self.root, bg='black', highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
+
         self.keys = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
                      ["A", "S", "D", "F", "G", "H", "J", "K", "L", "<"],
                      ["Z", "X", "C", "V", "B", "N", "M", " ", "_", "X"]]
@@ -63,6 +66,7 @@ class FridayHUD:
             self.root.withdraw()
             return
         self.root.deiconify()
+        # Reactive UI: Changes outline when Friday is listening
         glow = "#FF00FF" if SharedState.is_listening else "#00FFFF"
         for b in self.buttons:
             x1, y1, x2, y2 = b['coords']
@@ -101,11 +105,6 @@ class HandRecog:
 
     def get_gesture(self):
         if not self.hand_result: return Gest.NONE
-        
-        # Pinch Clicks (Priority)
-        if self.get_dist([8, 4]) < 0.035: return Gest.PINCH_LEFT
-        if self.get_dist([12, 4]) < 0.035: return Gest.PINCH_RIGHT
-
         f_up = bin(self.finger).count('1')
         if f_up >= 4: current = Gest.PALM
         elif self.finger == 12: current = Gest.V_GEST
@@ -115,6 +114,9 @@ class HandRecog:
         elif self.finger == 16: current = Gest.THUMB
         else: current = self.finger
 
+        if self.finger in [Gest.LAST3, Gest.LAST4] and self.get_dist([8,4]) < 0.04:
+            current = Gest.PINCH_MINOR if self.hand_label == HLabel.MINOR else Gest.PINCH_MAJOR
+
         if current == self.prev_gesture: self.frame_count += 1
         else: self.frame_count = 0
         self.prev_gesture = current
@@ -123,90 +125,85 @@ class HandRecog:
 
 # --- SYSTEM CONTROLLER ---
 class Controller:
+    # EMA Smoothing Factor (0.1 to 1.0)
     alpha = 0.65
     smooth_x, smooth_y = 0, 0
     frameR, cam_w, cam_h = 40, 320, 240
     grab_flag = False
-    
-    # Track vertical start for sliders
-    vol_start_y = None
-    bright_start_y = None
+    pinch_start_val = None
 
     @staticmethod
     def get_smooth_pos(res):
         sx, sy = pyautogui.size()
         tx = np.interp(res.landmark[5].x * Controller.cam_w, (Controller.frameR, Controller.cam_w-Controller.frameR), (0, sx))
         ty = np.interp(res.landmark[5].y * Controller.cam_h, (Controller.frameR, Controller.cam_h-Controller.frameR), (0, sy))
+
+        # Exponential Moving Average (EMA) Filter
         Controller.smooth_x = (Controller.alpha * tx) + ((1 - Controller.alpha) * Controller.smooth_x)
         Controller.smooth_y = (Controller.alpha * ty) + ((1 - Controller.alpha) * Controller.smooth_y)
         return Controller.smooth_x, Controller.smooth_y
 
     @staticmethod
     def handle_controls(maj_g, min_g, maj_res, min_res, hud):
+        # Prevention: Don't click/move if Friday is talking
         if SharedState.is_speaking: return
 
-        # Toggle HUD (Double Palm)
+        # Toggle HUD
         if maj_g == Gest.PALM and min_g == Gest.PALM:
             if time() - SharedState.last_action_time > 1.5:
                 SharedState.keyboard_active = not SharedState.keyboard_active
                 SharedState.last_action_time = time()
 
-        # --- MAJOR HAND: CURSOR & VOLUME ---
-        if maj_res:
-            x, y = Controller.get_smooth_pos(maj_res)
-            
-            # SLIDER GESTURE: Thumb + Index Extended (But not pinched)
-            # If thumb is out (Gest.THUMB) and Index is up
-            if maj_g == Gest.THUMB:
-                idx_y = maj_res.landmark[8].y
-                if Controller.vol_start_y is None: Controller.vol_start_y = idx_y
-                
-                # Calculate movement delta
-                delta = (Controller.vol_start_y - idx_y) * 10  # Sensitive vertical movement
-                if abs(delta) > 0.05:
-                    devices = AudioUtilities.GetSpeakers()
-                    interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-                    vol_ctrl = cast(interface, POINTER(IAudioEndpointVolume))
-                    current_vol = vol_ctrl.GetMasterVolumeLevelScalar()
-                    vol_ctrl.SetMasterVolumeLevelScalar(max(0.0, min(1.0, current_vol + delta/50)), None)
-            else:
-                Controller.vol_start_y = None
-                # Normal Movement / Clicks
-                if not SharedState.keyboard_active:
-                    if maj_g in [Gest.V_GEST, Gest.PALM, Gest.INDEX]: 
-                        pyautogui.moveTo(x, y, _pause=False)
-                    if maj_g == Gest.PINCH_LEFT:
-                        if time() - SharedState.last_action_time > 0.4:
-                            pyautogui.click(button='left'); SharedState.last_action_time = time()
-                    elif maj_g == Gest.PINCH_RIGHT:
-                        if time() - SharedState.last_action_time > 0.4:
-                            pyautogui.click(button='right'); SharedState.last_action_time = time()
-                    elif maj_g == Gest.FIST:
-                        if not Controller.grab_flag: pyautogui.mouseDown(); Controller.grab_flag = True
-                        pyautogui.moveTo(x, y, _pause=False)
-                    elif Controller.grab_flag: pyautogui.mouseUp(); Controller.grab_flag = False
+        if not maj_res: return
+        x, y = Controller.get_smooth_pos(maj_res)
 
-        # --- MINOR HAND: BRIGHTNESS ---
-        if min_res:
-            # Minor Hand Slider for Brightness
-            if min_g == Gest.THUMB:
-                idx_y = min_res.landmark[8].y
-                if Controller.bright_start_y is None: Controller.bright_start_y = idx_y
-                
-                delta = (Controller.bright_start_y - idx_y) * 10
-                if abs(delta) > 0.05:
-                    curr_bright = sbcontrol.get_brightness()[0]
-                    sbcontrol.set_brightness(max(0, min(100, curr_bright + int(delta * 5))))
-            else:
-                Controller.bright_start_y = None
+        if SharedState.keyboard_active:
+            if min_g == Gest.PALM and maj_g == Gest.INDEX:
+                pyautogui.moveTo(x, y, _pause=False)
+                for b in hud.buttons:
+                    x1, y1, x2, y2 = b['coords']
+                    if x1 < x < x2 and y1 < y < y2:
+                        if time() - SharedState.last_action_time > 1.2:
+                            key = b['key']
+                            if key == "X": SharedState.keyboard_active = False
+                            elif key == "<": pyautogui.press("backspace")
+                            elif key == "_": pyautogui.press("enter")
+                            elif key == " ": pyautogui.press("space")
+                            else: pyautogui.write(key.lower())
+                            SharedState.last_action_time = time()
+        else:
+            if maj_g == Gest.V_GEST: pyautogui.moveTo(x, y, _pause=False)
+            elif maj_g == Gest.FIST:
+                if not Controller.grab_flag: pyautogui.mouseDown(); Controller.grab_flag = True
+                pyautogui.moveTo(x, y, _pause=False)
+            elif Controller.grab_flag: pyautogui.mouseUp(); Controller.grab_flag = False
+
+            if maj_g == Gest.MID and time() - SharedState.last_action_time > 0.3:
+                pyautogui.click(); SharedState.last_action_time = time()
+            elif maj_g == Gest.INDEX and time() - SharedState.last_action_time > 0.3:
+                pyautogui.rightClick(); SharedState.last_action_time = time()
+
+            # Hardware Control (Pinch)
+            if maj_g == Gest.PINCH_MAJOR:
+                dy = maj_res.landmark[8].y - maj_res.landmark[4].y
+                if Controller.pinch_start_val is None: Controller.pinch_start_val = dy
+                delta = (Controller.pinch_start_val - dy) * 100
+                if abs(delta) > 3:
+                    vol = cast(AudioUtilities.GetSpeakers().Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None), POINTER(IAudioEndpointVolume))
+                    vol.SetMasterVolumeLevelScalar(max(0.0, min(1.0, vol.GetMasterVolumeLevelScalar() + delta/500)), None)
+            else: Controller.pinch_start_val = None
 
 # --- MAIN VISION EXECUTION ---
 class GestureController:
     def __init__(self):
-        import mediapipe as mp
-        self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.7)
-        self.mp_draw = mp.solutions.drawing_utils
+        try:
+            import mediapipe as mp
+            self.mp_hands = mp.solutions.hands
+            self.hands = self.mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.7)
+            self.mp_draw = mp.solutions.drawing_utils
+        except Exception as e:
+            print(f"❌ Mediapipe Load Error: {e}")
+
         self.cap = cv2.VideoCapture(0)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
@@ -219,19 +216,34 @@ class GestureController:
             if not success: break
             img = cv2.flip(img, 1)
             results = self.hands.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-            h_maj.update_hand_result(None); h_min.update_hand_result(None)
+
+            h_maj.update_hand_result(None)
+            h_min.update_hand_result(None)
 
             if results.multi_hand_landmarks:
                 for idx, hand_info in enumerate(results.multi_handedness):
                     label = hand_info.classification[0].label
                     if label == 'Right': h_maj.update_hand_result(results.multi_hand_landmarks[idx])
                     else: h_min.update_hand_result(results.multi_hand_landmarks[idx])
-                h_maj.set_finger_state(); h_min.set_finger_state()
-                Controller.handle_controls(h_maj.get_gesture(), h_min.get_gesture(), h_maj.hand_result, h_min.hand_result, self.hud)
+
+                h_maj.set_finger_state()
+                h_min.set_finger_state()
+                Controller.handle_controls(h_maj.get_gesture(), h_min.get_gesture(),
+                                         h_maj.hand_result, h_min.hand_result, self.hud)
+
+            # Update Displays
+            mx, my = pyautogui.position()
+            #self.hud.update_hud(mx, my)
+
+            if results.multi_hand_landmarks:
+                for hand_lms in results.multi_hand_landmarks:
+                    self.mp_draw.draw_landmarks(img, hand_lms, self.mp_hands.HAND_CONNECTIONS)
 
             cv2.imshow('Friday Vision Feed', img)
             if cv2.waitKey(1) & 0xFF == 27: break
-        self.cap.release(); cv2.destroyAllWindows()
+
+        self.cap.release()
+        cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     GestureController().start()
